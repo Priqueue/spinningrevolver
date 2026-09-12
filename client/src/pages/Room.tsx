@@ -281,10 +281,13 @@ function GameTable() {
             {isBlind && <span className="muted small">（{PHASE_LABEL[phase]}阶段：盲选，不显示任何牌信息）</span>}
           </h3>
           <div className="spacer" />
-          {phase === 'flip' && isMyTurn && <span className="muted small">点击牌位完成翻转</span>}
+          {/*
+            隐藏信息纪律：不提示「两个牌位必须明暗状态相同」这一合法性条件，
+            只回显玩家自己已选的牌位，让玩家通过服务端的非法提示自行推断规则。
+          */}
           {phase === 'swap' && isMyTurn && (
             <span className="muted small" data-testid="swap-hint">
-              已选 {swapPicks.join('、') || '无'}（选两个同明暗状态的牌位）
+              已选 {swapPicks.length === 0 ? '无' : swapPicks.join('、')}
             </span>
           )}
         </div>
@@ -315,22 +318,25 @@ function GameTable() {
         />
       )}
 
-      {phase !== 'bet' && phase !== 'gameOver' && (
+      {/*
+        翻转 / 易位阶段的操作区。
+        隐藏信息纪律：不向玩家解释判定规则——
+          · 不说明「同状态翻自己、异状态与对手交换」
+          · 不说明「只有明暗状态相同的两张牌才能易位」
+          · 不显示双方是否已完成翻转（会泄露对手进度）
+        玩家只能通过服务端返回的结果（阶段推进、非法提示）自行推断。
+      */}
+      {(phase === 'flip' || phase === 'swap') && (
         <div className="card">
           <div className="row wrap">
             <span className="muted small">
               {phase === 'flip'
-                ? '翻转阶段：系统会先比较双方同一牌位的明暗状态，同状态翻自己的牌，异状态与对手交换。你无法得知对手选了哪个牌位。'
-                : '易位阶段：只能交换自己牌堆中明暗状态相同的两张牌；非法组合会被拒绝并需重选。'}
+                ? '翻转阶段：请选择一个牌位。'
+                : '易位阶段：请依次选择两个牌位。'}
             </span>
             <div className="spacer" />
-            <span className="tag">
-              你 {game.flip.acted[mySeat] ? '已' : '未'}
-              完成翻转
-            </span>
-            <span className="tag">
-              对手 {game.flip.acted[mySeat === 0 ? 1 : 0] ? '已' : '未'}
-              完成翻转
+            <span className={`tag ${isMyTurn ? 'on' : ''}`}>
+              {isMyTurn ? '等待你的选择' : '等待对手'}
             </span>
           </div>
         </div>

@@ -3,25 +3,20 @@
  *
  * 纪律（硬性）：
  *  1. 绝不把 GameState 直接序列化后删字段；一律**显式白名单构造**新对象。
- *  2. flip / swap 阶段：不包含任何牌数据（连牌背都不发）。
+ *  2. flip / swap 阶段：不包含任何牌数据（连牌背都不发），
+ *     并且**不下发任何行动记录**——谁行动过、选过哪些牌位、有没有非法尝试，
+ *     都会泄露「同状态翻转 / 异状态交换」「同状态才能易位」这两条暗规则，
+ *     因此 flip/swap 只暴露 phase 与 turn。
  *  3. bet 阶段：只包含**自己的**牌；暗牌**不写入 value 键**（而非写 null）。
  *  4. 对手的牌永远只有牌位号，不含 value / faceUp / id。
  *  5. settle / gameOver 阶段：不含任何牌数据。
  */
-import { PUBLIC_SWAP_ACTION } from './constants';
-import type {
-  GameState,
-  GameView,
-  PlayerView,
-  Seat,
-  SelfCardView,
-  Slot,
-} from './types';
+import type { GameState, GameView, PlayerView, Seat, SelfCardView, Slot } from './types';
 
-/** 牌数据允许下发的阶段：仅下注阶段（结算与结束阶段不自动公开牌面） */
+/** 牌数据允许下发的阶段：仅下注阶段 */
 const PHASES_WITH_OWN_CARDS = new Set(['bet']);
-/** 明牌总数允许下发的阶段 */
-const PHASES_WITH_FACEUP_TOTAL = new Set(['bet', 'settle', 'gameOver']);
+/** 明牌总数允许下发的阶段：仅下注阶段（结算与结束阶段不公开牌面相关信息） */
+const PHASES_WITH_FACEUP_TOTAL = new Set(['bet']);
 
 function playerBetView(state: GameState, seat: Seat): PlayerView {
   return {
@@ -77,17 +72,7 @@ export function getStateForPlayer(state: GameState, seat: Seat): GameView {
     status: state.status,
     you,
     opponent: foe,
-    flip: { acted: [...state.flip.acted] as [boolean, boolean] },
-    swap: {
-      acted: [...state.swap.acted] as [boolean, boolean],
-      attempts: state.swap.attempts.map((a) => ({
-        player: a.player,
-        // 未开启公开时连牌号都不下发，只保留「有一次尝试且合法/非法」的事实
-        slots: PUBLIC_SWAP_ACTION ? ([...a.slots] as [Slot, Slot]) : null,
-        valid: a.valid,
-        round: a.round,
-      })),
-    },
+    // 注意：不构造 flip / swap 字段 —— 行动记录属于暗规则泄露面
     bet: {
       ante: state.bet.ante,
       bets: [...state.bet.bets] as [number, number],

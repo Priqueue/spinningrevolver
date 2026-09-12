@@ -308,23 +308,32 @@ export class RoomManager {
     for (const h of hints) {
       switch (h.kind) {
         case 'flipDone':
-          // 不记录牌号，也不记录任何牌信息
-          this.pushLog(room, 'public', 'flip', `${this.nameOf(room, h.actor)} 完成了翻转`);
+          // 暗规则保护：翻转阶段不向任何人广播「谁选了哪个牌位」，
+          // 连「某人完成了翻转」也不公开——那会暴露对手的行动进度。
+          // 因此这里只写**本人可见**的私有日志。
+          this.pushLog(room, 'private', 'flip', '你完成了翻转', h.actor);
           break;
         case 'swapApplied':
+          // 暗规则保护：易位的两个牌号属于「玩家不可直接得知」的信息，
+          // 公开它会暴露「同状态才可易位」这一判定条件（玩家可反推牌面明暗）。
+          // 因此只写本人可见的私有日志，公开日志仅保留「有人完成了易位」。
           this.pushLog(
             room,
-            'public',
+            'private',
             'swap',
-            `${this.nameOf(room, h.actor)} 易位了 ${h.slots[0]} 号与 ${h.slots[1]} 号牌`,
+            `你易位了 ${h.slots[0]} 号与 ${h.slots[1]} 号牌`,
+            h.actor,
           );
+          this.pushLog(room, 'public', 'swap', `${this.nameOf(room, h.actor)} 完成了易位`);
           break;
         case 'swapRejected':
+          // 非法尝试同样只让本人知道（公开记录会泄露合法性条件）
           this.pushLog(
             room,
-            'public',
+            'private',
             'swap',
-            `${this.nameOf(room, h.actor)} 尝试易位 ${h.slots[0]} 号与 ${h.slots[1]} 号牌 → 非法易位，需重新选择`,
+            `你尝试易位 ${h.slots[0]} 号与 ${h.slots[1]} 号牌 → 非法易位，请重新选择`,
+            h.actor,
           );
           break;
         case 'ante':

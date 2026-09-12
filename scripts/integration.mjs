@@ -122,12 +122,13 @@ async function main() {
   const seatMe = firstSeat;
   const seatFoe = 1 - firstSeat;
 
-  await new Promise((r) => {
-    const h = (p) => p?.game && p.game.flip.acted[seatMe] && r();
-    mySock.on('room:state', h);
-    mySock.emit('game:action', { action: { type: 'flip', slot: 1 }, actionId: crypto.randomUUID() });
-    setTimeout(r, 3000);
+  // 先手完成翻转（视图不再下发 acted，改用「行动者切换」判断）
+  const flipAck = await emitAck(mySock, 'game:action', {
+    action: { type: 'flip', slot: 1 },
+    actionId: crypto.randomUUID(),
   });
+  check('先手翻转被接受', flipAck?.ok === true, JSON.stringify(flipAck));
+  await sleep(250);
 
   for (const seat of [seatMe, seatFoe]) {
     const st = seat === 0 ? stateA() : stateB();
@@ -138,15 +139,19 @@ async function main() {
       !keys.has('cards') && !keys.has('faceUp') && !keys.has('value') && !keys.has('board'),
       [...keys].filter((k) => ['cards', 'faceUp', 'value', 'board', 'id'].includes(k)).join(','),
     );
+    check(
+      `翻转阶段（座位${seat}）不下发任何行动记录`,
+      !keys.has('flip') && !keys.has('swap') && !keys.has('acted') && !keys.has('attempts'),
+    );
   }
 
-  // 后手完成翻转
-  await new Promise((r) => {
-    const h = (p) => p?.game && p.game.phase === 'swap' && r();
-    foeSock.on('room:state', h);
-    foeSock.emit('game:action', { action: { type: 'flip', slot: 2 }, actionId: crypto.randomUUID() });
-    setTimeout(r, 3000);
+  // 后手完成翻转 → 进入易位
+  const flipAck2 = await emitAck(foeSock, 'game:action', {
+    action: { type: 'flip', slot: 2 },
+    actionId: crypto.randomUUID(),
   });
+  check('后手翻转被接受', flipAck2?.ok === true, JSON.stringify(flipAck2));
+  await sleep(300);
 
   // ---------- 易位阶段：仍不泄露牌信息 ----------
   await sleep(200); // 等双方状态收敛后再检查，避免读到翻转阶段的旧快照
@@ -161,54 +166,96 @@ async function main() {
     check(`易位阶段（座位${seat}）phase = swap`, st.game.phase === 'swap', st.game.phase);
   }
 
-  // 双方易位（贪心找同状态对；找不到就试所有组合）
-  async function doSwap(sock) {
-    for (let i = 1; i <= 4; i++) {
-      for (let j = i + 1; j <= 4; j++) {
-        const before = lastState(inbound[sock === a ? 0 : 1]);
-        const actedBefore = before?.game?.swap.acted ?? [false, false];
-        sock.emit('game:action', { action: { type: 'swap', slots: [i, j] }, actionId: crypto.randomUUID() });
-        await sleep(180);
-        const after = lastState(inbound[sock === a ? 0 : 1]);
-        if (after?.game && (after.game.phase !== 'swap' || after.game.swap.acted.some((v, k) => v && !actedBefore[k]))) return true;
-      }
-    }
-    return false;
-  }
-  await doSwap(firstSeat === 0 ? a : b);
-  await doSwap(firstSeat === 0 ? b : a);
-  await sleep(250);
-
-  const swapDone = stateA()?.game;
-  check('易位完成后进入下注阶段', swapDone?.phase === 'bet', swapDone?.phase);
-  check(
-    '公开了双方易位记录（含牌号，不含明暗）',
-    (swapDone?.swap.attempts?.length ?? 0) > 0 &&
-      swapDone.swap.attempts.every((x) => JSON.stringify(x).indexOf('faceUp') === -1),
-    JSON.stringify(swapDone?.swap.attempts),
-  );
-  // 非法易位必须被记录为 valid:false（且不改变行动者），合法易位记为 valid:true
-  check(
-    '非法易位被标记为 valid=false 且不推进阶段',
-    (swapDone?.swap.attempts?.some((x) => x.valid === false) ?? false) &&
-      (swapDone?.swap.attempts?.every((x) => x.slots === null || (Array.isArray(x.slots) && x.slots.length === 2)) ?? false),
-    JSON.stringify(swapDone?.swap.attempts?.map((x) => [x.player, x.slots, x.valid])),
-  );
-  check(
-    '非法易位的公开记录不含明暗状态',
-    (swapDone?.swap.attempts ?? []).every((x) => JSON.stringify(x).indexOf('faceUp') === -1 && JSON.stringify(x).indexOf('明牌') === -1),
-  );
-  // 尝试一次非法组合（同一牌位），应被接受为「非法记录」而非改变牌局
+  // 非法易位（同一牌位）：应在易位阶段内被拒、且不下发任何细节
   {
-    const probeSock = firstSeat === 0 ? a : b;
-    const beforeActed = JSON.stringify(stateA()?.game?.swap.acted);
-    const ackIllegal = await emitAck(probeSock, 'game:action', {
+    const seat = firstSeat;
+    const sock = seat === 0 ? a : b;
+    const before = lastState(inbound[seat])?.game;
+    const ackIllegal = await emitAck(sock, 'game:action', {
       action: { type: 'swap', slots: [1, 1] },
       actionId: crypto.randomUUID(),
     });
     await sleep(200);
-    check('同牌位易位被拒绝但收到应答', ackIllegal !== undefined, JSON.stringify(ackIllegal));
-    void beforeActed;
+    const after = lastState(inbound[seat])?.game;
+    check('非法易位被服务端受理但不构成有效操作', ackIllegal !== undefined, JSON.stringify(ackIllegal));
+    check(
+      '非法易位不推进行动者（仍在同一人手上）',
+      !!before && !!after && before.turn === after.turn && after.phase === 'swap',
+      JSON.stringify({ beforeTurn: before?.turn, afterTurn: after?.turn, phase: after?.phase }),
+    );
+    check(
+      '非法易位不下发任何细节（不泄露合法性条件）',
+      !!after &&
+        !collectKeys(after).has('attempts') &&
+        !JSON.stringify(after).includes('"slots"') &&
+        !JSON.stringify(after).includes('"valid"'),
+    );
+  }
+
+  // 双方易位：视图不再下发 acted，改用「轮次切换 / 阶段推进」判断是否成功。
+  // 成功判据：本次动作后 turn 变为对手，或 phase 已不再是 swap。
+  async function doSwapTillTurnSwitches(seat) {
+    const sock = seat === 0 ? a : b;
+    const before = lastState(inbound[seat])?.game;
+    if (!before) return false;
+    const startTurn = before.turn;
+    for (let i = 1; i <= 4; i++) {
+      for (let j = i + 1; j <= 4; j++) {
+        const res = await emitAck(sock, 'game:action', {
+          action: { type: 'swap', slots: [i, j] },
+          actionId: crypto.randomUUID(),
+        });
+        await sleep(150);
+        const cur = lastState(inbound[seat])?.game;
+        if (!cur) continue;
+        if (cur.phase !== 'swap' || cur.turn !== startTurn) return true;
+        void res;
+      }
+    }
+    return false;
+  }
+  const swapOkFirst = await doSwapTillTurnSwitches(firstSeat);
+  check('先手易位成功（轮次已切换）', swapOkFirst);
+  const swapOkSecond = await doSwapTillTurnSwitches(1 - firstSeat);
+  check('后手易位成功（阶段已推进）', swapOkSecond || stateA()?.game?.phase === 'bet');
+  await sleep(300);
+
+  const swapDone = stateA()?.game;
+  check('易位完成后进入下注阶段', swapDone?.phase === 'bet', swapDone?.phase);
+
+  // 暗规则保护：翻转/易位阶段不下发任何行动记录，也不公开易位牌号
+  check(
+    '视图不含 flip / swap 行动记录字段',
+    !collectKeys(swapDone).has('flip') &&
+      !collectKeys(swapDone).has('swap') &&
+      !collectKeys(swapDone).has('attempts') &&
+      !collectKeys(swapDone).has('slots') &&
+      !collectKeys(swapDone).has('valid'),
+    [...collectKeys(swapDone)].filter((k) => ['flip', 'swap', 'attempts', 'slots', 'valid', 'acted'].includes(k)).join(','),
+  );
+  // 尝试一次非法组合（同一牌位）：状态在下发时同样不含任何细节
+  {
+    const after = stateA()?.game;
+    check(
+      '非法易位后视图仍不含任何行动细节',
+      !!after && !collectKeys(after).has('attempts') && !JSON.stringify(after).includes('"slots"'),
+    );
+  }
+
+  // 公开日志不得泄露暗规则（翻转牌号 / 易位牌号 / 非法易位细节）
+  {
+    const logs = lastState(inbound[0])?.logs ?? [];
+    const publicText = logs
+      .filter((l) => l.visibility === 'public')
+      .map((l) => l.text)
+      .join(' | ');
+    check('公开日志不含翻转牌号', !/翻转\s*[1-4]/.test(publicText), publicText.slice(0, 120));
+    check('公开日志不出现「非法易位」字样', !publicText.includes('非法易位'), publicText.slice(0, 120));
+    check(
+      '公开日志不暴露易位的两个牌号',
+      !/易位了\s*[1-4]\s*号与\s*[1-4]\s*号/.test(publicText),
+      publicText.slice(0, 120),
+    );
   }
 
   // ---------- 下注阶段：只泄露自己的牌 ----------
@@ -336,22 +383,27 @@ async function multiRoundGame() {
   let guard = 0;
   let lastRound = 0;
   let sawSettlement = false;
+  let roundsPlayed = 0;
   while (guard++ < 60) {
     const g = lastState(inbound[0])?.game ?? lastState(inbound[1])?.game;
     if (!g) break;
     if (g.status === 'gameOver') break;
     if (g.settlementResult) sawSettlement = true;
     lastRound = Math.max(lastRound, g.round);
-    const after = await playFullRound(p, q, inbound);
-    if (!after) break;
-    if (after.status === 'gameOver') {
-      sawSettlement = sawSettlement || !!after.settlementResult;
+    const roundBefore = g.round;
+    const out = await playFullRound(p, q, inbound);
+    if (!out.state) break;
+    if (out.sawSettlement) sawSettlement = true;
+    // 轮次增加 = 本轮已成功结算并进入下一轮
+    if (out.state.round > roundBefore) roundsPlayed += 1;
+    if (out.state.status === 'gameOver') {
+      sawSettlement = sawSettlement || !!out.state.settlementResult;
       break;
     }
   }
 
   const final = lastState(inbound[0])?.game ?? lastState(inbound[1])?.game;
-  check('连续对局：至少推进了 2 轮', lastRound >= 2, `最后一轮 ${lastRound}`);
+  check('连续对局：至少完成 2 轮结算', roundsPlayed >= 2, `完成 ${roundsPlayed} 轮，最后一轮 ${lastRound}`);
   check('连续对局：出现过结算结果', sawSettlement);
   check(
     '连续对局：最终分出胜负或仍在合理进行中',
@@ -381,53 +433,73 @@ async function multiRoundGame() {
   q.close();
 }
 
-/** 自动打完一整轮（两名玩家各自行动），返回最终状态 */
+/**
+ * 自动打完一整轮（状态驱动，不依赖已移除的 acted 字段）。
+ * 返回 { state, sawSettlement }：
+ *  - state         当前最新视图
+ *  - sawSettlement 本轮是否观察到结算结果（结算结果会在下一轮开始时被覆盖，故需轮询采样）
+ */
 async function playFullRound(a, b, inbound) {
   const cur = () => lastState(inbound[0])?.game ?? lastState(inbound[1])?.game ?? null;
   const sockOf = (seat) => (seat === 0 ? a : b);
+  let sawSettlement = false;
 
-  const g = cur();
-  if (!g) return null;
-  if (g.status === 'gameOver') return g;
-
-  // 翻转：先手、后手各一次
-  for (const seat of [g.first, g.second]) {
-    if (cur()?.phase !== 'flip') break;
-    if (cur()?.flip.acted[seat]) continue;
-    await emitAck(sockOf(seat), 'game:action', {
-      action: { type: 'flip', slot: 1 },
-      actionId: crypto.randomUUID(),
-    });
-    await sleep(120);
-  }
-  // 易位：每个玩家贪心找一个合法组合
-  for (const seat of [g.first, g.second]) {
-    if (cur()?.phase !== 'swap') break;
-    if (cur()?.swap.acted[seat]) continue;
-    let done = false;
-    for (let i = 1; i <= 4 && !done; i++) {
-      for (let j = i + 1; j <= 4 && !done; j++) {
-        await emitAck(sockOf(seat), 'game:action', {
-          action: { type: 'swap', slots: [i, j] },
-          actionId: crypto.randomUUID(),
-        });
-        await sleep(110);
-        if (cur()?.swap.acted[seat] || cur()?.phase !== 'swap') done = true;
-      }
+  /** 轮询采样结算结果：服务端在结算后短暂保留，随后被下一轮覆盖 */
+  async function sample(budgetMs = 400) {
+    const deadline = Date.now() + budgetMs;
+    while (Date.now() < deadline) {
+      if (cur()?.settlementResult) sawSettlement = true;
+      await sleep(40);
     }
   }
-  // 下注：按当前行动者依次停注，直到完成结算
-  for (let k = 0; k < 3; k++) {
-    const g2 = cur();
-    if (!g2 || g2.phase !== 'bet' || g2.bet.finished) break;
-    await emitAck(sockOf(g2.turn), 'game:action', {
-      action: { type: 'bet', action: 'stop' },
+
+  const g = cur();
+  if (!g) return { state: null, sawSettlement };
+  if (g.status === 'gameOver') return { state: g, sawSettlement };
+
+  // 翻转：先手、后手各一次（每次成功后 turn 会切换）
+  for (let k = 0; k < 2; k++) {
+    const s = cur();
+    if (!s || s.phase !== 'flip') break;
+    await emitAck(sockOf(s.turn), 'game:action', {
+      action: { type: 'flip', slot: 1 },
       actionId: crypto.randomUUID(),
     });
     await sleep(170);
   }
-  await sleep(220);
-  return cur();
+
+  // 易位：对当前行动者贪心尝试所有组合，直到轮次切换或阶段推进
+  for (let k = 0; k < 2; k++) {
+    const s = cur();
+    if (!s || s.phase !== 'swap') break;
+    const startTurn = s.turn;
+    let moved = false;
+    for (let i = 1; i <= 4 && !moved; i++) {
+      for (let j = i + 1; j <= 4 && !moved; j++) {
+        await emitAck(sockOf(startTurn), 'game:action', {
+          action: { type: 'swap', slots: [i, j] },
+          actionId: crypto.randomUUID(),
+        });
+        await sleep(130);
+        const now = cur();
+        if (now && (now.phase !== 'swap' || now.turn !== startTurn)) moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+
+  // 下注：按当前行动者依次停注，直到完成结算
+  for (let k = 0; k < 3; k++) {
+    const s = cur();
+    if (!s || s.phase !== 'bet' || s.bet.finished) break;
+    await emitAck(sockOf(s.turn), 'game:action', {
+      action: { type: 'bet', action: 'stop' },
+      actionId: crypto.randomUUID(),
+    });
+    await sample(360);
+  }
+  await sample(360);
+  return { state: cur(), sawSettlement };
 }
 
 function lastState(list) {

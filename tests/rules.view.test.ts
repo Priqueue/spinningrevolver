@@ -98,6 +98,7 @@ describe('11.10 翻转阶段不泄露任何牌信息', () => {
     for (const seat of [0, 1] as Seat[]) {
       const text = JSON.stringify(getStateForPlayer(g, seat));
       expect(text.includes('"value"')).toBe(false);
+      // 带引号匹配真实键名（faceUpTotal 含子串 faceUp，不可用裸子串判断）
       expect(text.includes('"faceUp"')).toBe(false);
     }
   });
@@ -115,36 +116,63 @@ describe('11.10 易位阶段不泄露任何牌信息', () => {
     }
   });
 
-  it('对手可见：易位的两个牌号（PUBLIC_SWAP_ACTION 默认 true）', () => {
+  it('易位的两个牌号绝不公开（会泄露「同状态才可易位」这条暗规则）', () => {
     const s = swapPhase();
     const r = applySwap(s, 0, 3, 4); // A 的 3、4 同为暗牌 → 合法
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    const foeView = getStateForPlayer(r.state, 1);
-    const rec = foeView.swap.attempts.find((x) => x.player === 0);
-    expect(rec).toBeTruthy();
-    expect(rec!.slots).not.toBeNull();
-    expect(rec!.slots!.length).toBe(2);
-    expect(rec!.slots).toEqual([3, 4]);
-    expect(rec!.valid).toBe(true);
+    for (const seat of [0, 1] as Seat[]) {
+      const v = getStateForPlayer(r.state, seat);
+      // 视图里不存在 swap 字段
+      expect(hasKey(v, 'swap')).toBe(false);
+      const text = JSON.stringify(v);
+      expect(text.includes('"attempts"')).toBe(false);
+      expect(text.includes('"slots"')).toBe(false);
+      expect(text.includes('"valid"')).toBe(false);
+    }
   });
 
-  it('非法易位记录公开，但绝不含明暗状态', () => {
+  it('非法易位尝试绝不公开（会暴露牌的明暗状态）', () => {
     const s = swapPhase();
     const r = applySwap(s, 0, 1, 3); // A 的 1 明、3 暗 → 非法
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.state.swap.attempts[0].valid).toBe(false);
+    // 内部状态确实记录了这次非法尝试（供服务端裁决用）
+    expect(r.state.swap.attempts.length).toBe(1);
+    // 但不下发到任何玩家的视图
     for (const seat of [0, 1] as Seat[]) {
       const v = getStateForPlayer(r.state, seat);
-      const rec = v.swap.attempts.find((x) => x.player === 0 && !x.valid);
-      expect(rec).toBeTruthy();
-      const text = JSON.stringify(rec);
-      expect(text.includes('faceUp')).toBe(false);
+      expect(hasKey(v, 'swap')).toBe(false);
+      const text = JSON.stringify(v);
+      expect(text.includes('非法')).toBe(false);
+      // 注意用带引号的精确键名匹配：键 faceUpTotal 含子串 "faceUp"，会造成误判
+      expect(text.includes('"faceUp"')).toBe(false);
       expect(text.includes('"value"')).toBe(false);
-      expect(text.includes('明牌')).toBe(false);
-      expect(text.includes('暗牌')).toBe(false);
+      expect(text.includes('"slots"')).toBe(false);
     }
+  });
+
+  it('翻转阶段的行动记录不公开（不暴露对手进度）', () => {
+    const g = withBoards('uudd', 'uddu', 0, [1, 2, 4, 8], [8, 2, 4, 1]);
+    const afterFirst = expectOk(applyFlip(g, 0, 1)); // 先手已完成翻转
+    for (const seat of [0, 1] as Seat[]) {
+      const v = getStateForPlayer(afterFirst, seat);
+      expect(hasKey(v, 'flip')).toBe(false);
+      const text = JSON.stringify(v);
+      expect(text.includes('"acted"')).toBe(false);
+      expect(text.includes('"attempts"')).toBe(false);
+    }
+  });
+
+  it('下注阶段不公开「谁已停注/易位细节」以外的暗规则信息', () => {
+    const s = betPhase();
+    const v = getStateForPlayer(s, 0);
+    // 明牌总数在下注阶段是规则明确要求公开的
+    expect(v.bet.faceUpTotal).toBe(4);
+    // 但不得包含任何牌位级别的对手信息
+    expect(hasKey(v.opponent, 'cards')).toBe(false);
+    expect(hasKey(v, 'flip')).toBe(false);
+    expect(hasKey(v, 'swap')).toBe(false);
   });
 
   it('非法易位不推进阶段、不改变行动者', () => {

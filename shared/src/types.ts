@@ -240,12 +240,23 @@ export interface GameView {
   status: GameStatus;
   you: PlayerView;
   opponent: PlayerView;
-  flip: { acted: [boolean, boolean] };
-  swap: {
-    acted: [boolean, boolean];
-    /** 按 PUBLIC_SWAP_ACTION 决定是否下发牌号；未公开时 slots 为 null */
-    attempts: { player: Seat; slots: [Slot, Slot] | null; valid: boolean; round: number }[];
-  };
+  /**
+   * 注意：这里**没有** flip / swap 字段。
+   * 翻转与易位阶段的行动记录（谁行动过、选了哪些牌位、是否有非法尝试）
+   * 会泄露「同状态翻转 / 异状态交换」「同状态才能易位」这两条暗规则，
+   * 因此这两个阶段只下发 phase 与 turn，客户端据此渲染即可。
+   */
+  /**
+   * 本阶段行动者是否已经行动过。
+   *
+   * 这里**只回答"你自己是否已行动"**，永远不透露对手是否已行动：
+   * 「对手已行动」本身可被推理（例如翻转阶段对手已行动 ⇒ 他选的不是 1 号位，
+   * 否则你的 1 号牌早已被翻转/交换），因此下发它会变相泄露对手的牌位选择。
+   *
+   * 用途：仅用于在轮不到你时显示中性的「你已选择，等待对方」提示。
+   * 此刻你的选择已经落定、不可更改，因此该提示不给你任何新情报。
+   */
+  youActed: boolean;
   bet: {
     ante: number;
     bets: [number, number];
@@ -253,7 +264,7 @@ export interface GameView {
     firstStopped: boolean;
     finished: boolean;
     stopped: [boolean, boolean];
-    /** 仅在 bet 阶段下发；其余阶段为 null */
+    /** 仅在下注阶段下发；其余阶段为 null（结算/结束阶段不公开牌面相关信息） */
     faceUpTotal: number | null;
   };
   settlementResult?: SettlementResult;
