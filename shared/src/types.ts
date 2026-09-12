@@ -230,6 +230,15 @@ export interface PlayerView {
   betLimit: number;
 }
 
+/**
+ * 下行给客户端的结算结果。
+ *
+ * 相对服务端的 SettlementResult，**去掉了 `lastBrightOwner` 与 `tieBreakStarter`**：
+ * 它们会指出「最后计分的明牌属于谁 / 破平从谁开始」，
+ * 可用于反推某张牌的状态，从而绕过「翻转阶段双方都不知道牌面变化」。
+ */
+export type SettlementView = Omit<SettlementResult, 'lastBrightOwner' | 'tieBreakStarter'>;
+
 export interface GameView {
   mode: Mode;
   round: number;
@@ -267,6 +276,6 @@ export interface GameView {
     /** 仅在下注阶段下发；其余阶段为 null（结算/结束阶段不公开牌面相关信息） */
     faceUpTotal: number | null;
   };
-  settlementResult?: SettlementResult;
+  settlementResult?: SettlementView;
   gameOver?: GameOverInfo;
 }

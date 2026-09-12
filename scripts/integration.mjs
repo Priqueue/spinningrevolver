@@ -130,6 +130,28 @@ async function main() {
   check('先手翻转被接受', flipAck?.ok === true, JSON.stringify(flipAck));
   await sleep(250);
 
+  // 翻转阶段：行动者本人的视图里也不能体现「我的牌变了」，双方可观测信息对称
+  {
+    const va = stateA()?.game;
+    const vb = stateB()?.game;
+    if (va && vb && va.phase === 'flip') {
+      const pub = (v) => JSON.stringify({ round: v.round, phase: v.phase, status: v.status, bet: v.bet });
+      check('翻转阶段双方可观测信息对称', pub(va) === pub(vb), `${pub(va)} vs ${pub(vb)}`);
+      check(
+        'youActed 只反映自己（行动者 true、对手 false）',
+        va.youActed === true && vb.youActed === false,
+        JSON.stringify({ seat0: va.youActed, seat1: vb.youActed }),
+      );
+      check(
+        'youActed 之外不暴露任何行动记录',
+        !collectKeys(va).has('acted') &&
+          !JSON.stringify(va).includes('"acted"') &&
+          !collectKeys(va).has('flip') &&
+          !collectKeys(va).has('swap'),
+      );
+    }
+  }
+
   for (const seat of [seatMe, seatFoe]) {
     const st = seat === 0 ? stateA() : stateB();
     if (!st?.game) continue;
@@ -311,6 +333,13 @@ async function main() {
     check('结算后比分不相等', r.scores[0] !== r.scores[1], JSON.stringify(r.scores));
     check('结算结果不含牌数据', !collectKeys(r).has('faceUp') && !collectKeys(r).has('value'));
     check('结算阶段不自动公开双方牌面', !collectKeys(settled).has('cards'));
+    // 结算结果不得下发可用于反推牌面状态的两个字段
+    const rtext = JSON.stringify(r);
+    check(
+      '结算结果不下发 lastBrightOwner / tieBreakStarter',
+      !rtext.includes('lastBrightOwner') && !rtext.includes('tieBreakStarter'),
+      rtext.slice(0, 160),
+    );
   }
 
   // ---------- 断线重连 ----------

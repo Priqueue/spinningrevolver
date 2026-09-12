@@ -319,12 +319,12 @@ function GameTable() {
       )}
 
       {/*
-        翻转 / 易位阶段的操作区。
-        隐藏信息纪律：不向玩家解释判定规则——
-          · 不说明「同状态翻自己、异状态与对手交换」
-          · 不说明「只有明暗状态相同的两张牌才能易位」
-          · 不显示双方是否已完成翻转（会泄露对手进度）
-        玩家只能通过服务端返回的结果（阶段推进、非法提示）自行推断。
+        翻转 / 易位阶段的状态条。
+        隐藏信息纪律：
+          · 不向玩家解释判定规则（同状态翻自己 / 异状态与对手交换 / 同状态才可易位）
+          · 不透露「对手是否已作出选择」——该信息可被推理（对手已行动 ⇒ 他没选 1 号位）
+        因此下面的提示只依据 game.youActed（你自己是否已行动）来措辞，
+        绝不依赖任何对手状态；youActed 为 true 时你的选择已落定、不可更改，故无情报价值。
       */}
       {(phase === 'flip' || phase === 'swap') && (
         <div className="card">
@@ -335,10 +335,21 @@ function GameTable() {
                 : '易位阶段：请依次选择两个牌位。'}
             </span>
             <div className="spacer" />
-            <span className={`tag ${isMyTurn ? 'on' : ''}`}>
-              {isMyTurn ? '等待你的选择' : '等待对手'}
+            <span className={`tag ${isMyTurn ? 'on' : ''}`} data-testid="phase-status">
+              {isMyTurn
+                ? phase === 'flip'
+                  ? '等待你的选择'
+                  : '可继续选择牌位'
+                : game.youActed
+                  ? '已记录你的选择，等待对手'
+                  : '等待对手行动'}
             </span>
           </div>
+          {!isMyTurn && game.youActed && (
+            <p className="muted small" style={{ margin: '6px 0 0' }}>
+              你的本阶段选择已提交，对手完成后会自动进入下一步。
+            </p>
+          )}
         </div>
       )}
 

@@ -102,6 +102,70 @@ describe('11.10 翻转阶段不泄露任何牌信息', () => {
       expect(text.includes('"faceUp"')).toBe(false);
     }
   });
+
+  it('行动者自己也察觉不到自己的牌发生了变化（翻转后视图与翻转前同构）', () => {
+    // 核心约束：翻转阶段双方都不知道牌面变化 ——
+    // 连「我选了 n 号、我的 n 号牌到底翻没翻」都不能被行动者本人观测。
+    const g = withBoards('uudd', 'uddu', 0, [1, 2, 4, 8], [8, 2, 4, 1]);
+    const before = getStateForPlayer(g, 0);
+    const r = applyFlip(g, 0, 1);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const after = getStateForPlayer(r.state, 0);
+
+    // 选出「与这次翻转结果有关」的全部可观测字段：必须完全相同
+    const observable = (v: typeof before) => ({
+      round: v.round,
+      phase: v.phase,
+      status: v.status,
+      opponent: v.opponent,
+      bet: v.bet,
+    });
+    expect(observable(after)).toEqual(observable(before));
+    // 行动者视角里绝不出现任何牌对象或点数
+    expect(hasKey(after, 'cards')).toBe(false);
+    expect(hasKey(after, 'value')).toBe(false);
+  });
+
+  it('翻转阶段双方拿到的可观测信息完全对称（不因身份而不同）', () => {
+    const g = withBoards('uudd', 'uddu', 0, [1, 2, 4, 8], [8, 2, 4, 1]);
+    // 翻转前
+    for (const s of [g, (() => {
+      const r = applyFlip(g, 0, 1);
+      if (!r.ok) throw new Error('flip failed');
+      return r.state;
+    })()]) {
+      const v0 = getStateForPlayer(s, 0);
+      const v1 = getStateForPlayer(s, 1);
+      // 除 turn / youActed（各自视角）外，可观测字段必须一致
+      expect(v0.phase).toBe(v1.phase);
+      expect(v0.round).toBe(v1.round);
+      expect(v0.first).toBe(v1.first);
+      expect(v0.second).toBe(v1.second);
+      expect(v0.status).toBe(v1.status);
+      expect(JSON.stringify(v0.bet)).toBe(JSON.stringify(v1.bet));
+      // 双方都不含任何牌信息
+      expect(hasKey(v0, 'cards')).toBe(false);
+      expect(hasKey(v1, 'cards')).toBe(false);
+      expect(hasKey(v0, 'flip')).toBe(false);
+      expect(hasKey(v1, 'flip')).toBe(false);
+    }
+  });
+
+  it('youActed 只反映自己，绝不暴露对手行动状态', () => {
+    const g = withBoards('uudd', 'uddu', 0, [1, 2, 4, 8], [8, 2, 4, 1]);
+    const r = applyFlip(g, 0, 1); // 先手(0)已翻转，轮到后手(1)
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const v0 = getStateForPlayer(r.state, 0);
+    const v1 = getStateForPlayer(r.state, 1);
+    expect(v0.youActed).toBe(true); // 自己已行动
+    expect(v1.youActed).toBe(false); // 对手视角：自己尚未行动
+    // 关键：1 号视角无法从任何字段推断出「0 号已经行动过了」
+    expect(hasKey(v1, 'acted')).toBe(false);
+    expect(hasKey(v1, 'flip')).toBe(false);
+    expect(JSON.stringify(v1).includes('"acted"')).toBe(false);
+  });
 });
 
 describe('11.10 易位阶段不泄露任何牌信息', () => {
@@ -282,6 +346,23 @@ describe('11.10 结算与结束阶段不自动公开牌面', () => {
     // 结算结果里不含牌数据
     expect(collectKeys(v.settlementResult).has('faceUp')).toBe(false);
     expect(collectKeys(v.settlementResult).has('value')).toBe(false);
+  });
+
+  it('结算结果不下发 lastBrightOwner / tieBreakStarter（会反推牌面状态）', () => {
+    const s0 = withBoards('uudd', 'uddu', 0, [1, 2, 4, 8], [8, 2, 4, 1]);
+    const { state } = settleRound(expectOk(beginBetPhase(s0)));
+    // 服务端内部仍然保留这两个字段（用于判定与日志）
+    expect(state.settlementResult).toHaveProperty('lastBrightOwner');
+    expect(state.settlementResult).toHaveProperty('tieBreakStarter');
+    // 但下行视图里必须没有
+    for (const seat of [0, 1] as Seat[]) {
+      const v = getStateForPlayer(state, seat);
+      const text = JSON.stringify(v.settlementResult);
+      expect(text.includes('lastBrightOwner')).toBe(false);
+      expect(text.includes('tieBreakStarter')).toBe(false);
+      expect(v.settlementResult).not.toHaveProperty('lastBrightOwner');
+      expect(v.settlementResult).not.toHaveProperty('tieBreakStarter');
+    }
   });
 });
 

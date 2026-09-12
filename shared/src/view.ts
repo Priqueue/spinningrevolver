@@ -55,6 +55,46 @@ function faceUpTotal(state: GameState): number | null {
   return n;
 }
 
+/**
+ * 本阶段的行动者是否已行动。
+ * 只反映"请求者自己"，绝不包含对手状态 —— 见 types.ts 中 youActed 的说明。
+ */
+function youActed(state: GameState, seat: Seat): boolean {
+  if (state.phase === 'flip') return state.flip.acted[seat];
+  if (state.phase === 'swap') return state.swap.acted[seat];
+  if (state.phase === 'bet') return state.bet.stopped[seat];
+  return true;
+}
+
+/**
+ * 结算结果的下行投影。
+ *
+ * **裁掉 `lastBrightOwner` 与 `tieBreakStarter`**：
+ * 这两个字段会指出「最后被计入的明牌属于谁」以及「破平从谁开始」。
+ * 结合其余公开信息，玩家可借此反推某张牌的状态——
+ * 而那张牌的位置在翻转阶段是不可观测的，等于绕过了「翻转阶段双方都不知道牌面变化」。
+ * 服务端内部仍保留它们用于判定与日志，只是不下发。
+ */
+function settlementView(state: GameState): GameView['settlementResult'] {
+  const r = state.settlementResult;
+  if (!r) return undefined;
+  return {
+    S: r.S,
+    scores: [...r.scores] as [number, number],
+    tieBreak: r.tieBreak,
+    pot: r.pot,
+    loser: r.loser,
+    winner: r.winner,
+    a: r.a,
+    b: r.b,
+    payment: r.payment,
+    deduction: r.deduction,
+    winnerReceive: r.winnerReceive,
+    actualPaid: r.actualPaid,
+    chipsAfter: [...r.chipsAfter] as [number, number],
+  };
+}
+
 export function getStateForPlayer(state: GameState, seat: Seat): GameView {
   const you = playerBetView(state, seat);
   const foe = playerBetView(state, seat === 0 ? 1 : 0);
@@ -72,6 +112,9 @@ export function getStateForPlayer(state: GameState, seat: Seat): GameView {
     status: state.status,
     you,
     opponent: foe,
+    // 注意：这里只给「你自己是否已行动」，不给双方 acted ——
+    // 对手的 acted 可被推理由此反推其牌位选择。
+    youActed: youActed(state, seat),
     // 注意：不构造 flip / swap 字段 —— 行动记录属于暗规则泄露面
     bet: {
       ante: state.bet.ante,
@@ -82,13 +125,7 @@ export function getStateForPlayer(state: GameState, seat: Seat): GameView {
       stopped: [...state.bet.stopped] as [boolean, boolean],
       faceUpTotal: faceUpTotal(state),
     },
-    settlementResult: state.settlementResult
-      ? {
-          ...state.settlementResult,
-          scores: [...state.settlementResult.scores] as [number, number],
-          chipsAfter: [...state.settlementResult.chipsAfter] as [number, number],
-        }
-      : undefined,
+    settlementResult: settlementView(state),
     gameOver: state.gameOver
       ? { ...state.gameOver, chips: [...state.gameOver.chips] as [number, number] }
       : undefined,
