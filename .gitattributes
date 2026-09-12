@@ -1,0 +1,27 @@
+# 统一换行符：仓库内存 LF，检出时按平台转换
+# 避免 Windows 提交后 Linux 部署（Render/Railway）因 CRLF 出现脚本报错
+* text=auto
+
+*.ts   text
+*.tsx  text
+*.js   text
+*.mjs  text
+*.json text
+*.css  text
+*.html text
+*.md   text
+*.yml  text
+*.yaml text
+*.txt  text
+
+# 二进制文件不做转换
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.woff binary
+*.woff2 binary
+
+# 明确按 LF 的脚本类文件
+*.sh   text eol=lf

@@ -1,0 +1,31 @@
+# 依赖
+node_modules/
+.pnpm-store/
+
+# 构建产物
+dist/
+shared/dist/
+client/dist/
+server/dist/
+
+# 测试产物
+test-results/
+playwright-report/
+blob-report/
+.vitest/
+
+# 环境与日志
+.env
+.env.*
+*.log
+npm-debug.log*
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 临时文件
+.tmp-verify/
+*.tmp

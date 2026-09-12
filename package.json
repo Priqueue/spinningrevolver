@@ -1,0 +1,39 @@
+{
+  "name": "fanzhuan-zuolun",
+  "version": "1.0.0",
+  "private": true,
+  "description": "翻转左轮 — 2 人联机回合制网页棋牌游戏（服务端权威）",
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "node scripts/integration.mjs",
+    "build:shared": "npm --workspace @zuolun/shared run build",
+    "build:client": "npm --workspace @zuolun/client run build",
+    "build:server": "npm --workspace @zuolun/server run build",
+    "build": "npm run build:shared && npm run build:client && npm run build:server",
+    "dev": "concurrently -n server,client -c cyan,magenta \"npm --workspace @zuolun/server run dev\" \"npm --workspace @zuolun/client run dev\"",
+    "dev:server": "npm --workspace @zuolun/server run dev",
+    "dev:client": "npm --workspace @zuolun/client run dev",
+    "start": "node server/dist/index.cjs",
+    "e2e": "playwright test",
+    "e2e:install": "playwright install chromium",
+    "verify": "npm run test && npm run build && npm run test:integration",
+    "typecheck": "tsc -p shared/tsconfig.json --noEmit && tsc -p server/tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "@types/node": "^22.10.5",
+    "concurrently": "^9.1.2",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

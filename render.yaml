@@ -1,0 +1,15 @@
+# 翻转左轮 —— Render 部署配置
+# 单 Node 服务同时托管前端静态资源与 Socket.IO（内存房间，无需数据库）
+services:
+  - type: web
+    name: fanzhuan-zuolun
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
