@@ -57,9 +57,21 @@ export function Board({ cards, selectable = false, selected, onPick, blind = fal
               role={selectable ? 'button' : undefined}
               aria-label={`${slot} 号牌位`}
             >
-              {info && info.faceUp && <div className="cardface">{info.value}</div>}
-              {info && !info.faceUp && <div className="cardback">暗</div>}
-              <div className={`slot-no${info ? ' hidden-no' : ''}`}>{slot}</div>
+              {info && info.faceUp && (
+                <div className="cardface" data-testid={`${testId ?? 'slot'}-${slot}-face`}>
+                  {info.value}
+                </div>
+              )}
+              {info && !info.faceUp && (
+                <div className="cardback" data-testid={`${testId ?? 'slot'}-${slot}-back`}>
+                  <span className="cardback-mark">暗</span>
+                </div>
+              )}
+              {/*
+                牌位号只在「该牌位没有牌面信息」时显示（盲选阶段与空位）。
+                翻牌/下注阶段若同时显示牌位号与牌面，数字会压在牌上导致看不清。
+              */}
+              {!info && <div className="slot-no">{slot}</div>}
             </div>
           );
         })}

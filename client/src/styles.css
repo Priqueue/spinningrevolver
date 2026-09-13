@@ -315,10 +315,21 @@ select:focus {
 .slot.static {
   cursor: default;
 }
+/* 牌位号：中等大小的居中数字，只在空位/盲选时出现 */
 .slot .slot-no {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-dim);
+  font-size: 22px;
+  font-weight: 800;
+  color: #8ea6cc;
+  line-height: 1;
+}
+.slot.selectable .slot-no {
+  color: #b9cdf0;
+}
+.slot.selectable:hover .slot-no {
+  color: var(--accent);
+}
+.slot.selected .slot-no {
+  color: var(--accent);
 }
 .slot.selectable:hover {
   border-color: var(--accent);
@@ -346,7 +357,7 @@ select:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 26px;
+  font-size: 25px;
   font-weight: 800;
   background: var(--card-face);
   color: #10192c;
@@ -371,12 +382,12 @@ select:focus {
   width: auto;
   height: auto;
 }
-.slot .slot-no {
-  z-index: 1;
-  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
-}
-.slot .slot-no.hidden-no {
-  color: #cfe0ff;
+
+/* 暗牌上的「暗」字：小号、低对比、底部居中，不再与任何数字重叠 */
+.cardback-mark {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  opacity: 0.85;
 }
 
 .meta-grid {

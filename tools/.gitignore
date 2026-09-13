@@ -1,0 +1,9 @@
+# 本文件位于 tools/ 目录内，所有规则都相对于 tools/ —— 不能再带 tools/ 前缀。
+# 隧道工具（体积大，不进仓库）
+cloudflared.exe
+*.exe
+official.sha256
+
+# 运行时产物
+tunnel-url.txt
+tunnel*.log
